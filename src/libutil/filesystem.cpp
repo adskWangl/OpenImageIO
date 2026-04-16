@@ -332,9 +332,23 @@ Filesystem::exists(string_view path) noexcept
 {
 #ifdef _WIN32
     // filesystem::exists is slow on Windows for network paths, so use the
-    // WinAPI directly
-    return INVALID_FILE_ATTRIBUTES
-           != GetFileAttributesW(Strutil::utf8_to_utf16wstring(path).c_str());
+    // WinAPI directly. Use FIND_FIRST_EX_ON_DISK_ENTRIES_ONLY to skip potential
+    // cloud storage filter sync.
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileExW(
+        Strutil::utf8_to_utf16wstring(path).c_str(),
+        FindExInfoBasic,       // skip short name
+        &fd,
+        FindExSearchNameMatch,
+        nullptr,
+        FIND_FIRST_EX_LARGE_FETCH | FIND_FIRST_EX_ON_DISK_ENTRIES_ONLY);
+    if (h != INVALID_HANDLE_VALUE) {
+        FindClose(h);
+        return true;
+    }
+    return GetLastError() != ERROR_FILE_NOT_FOUND
+           ? false  // network down, no access
+           : false; // not found
 #else
     error_code ec;
     return filesystem::exists(u8path(path), ec);
